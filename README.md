@@ -1,58 +1,131 @@
-# Docker socat Port Forward
+# Docker Socat Port Forward
 
-Docker image for setting up one or multiple TCP ports forwarding, using socat.
+This Docker image facilitates the setup of TCP port forwarding using socat, suitable for a variety of networking tasks. It's designed to be simple enough for beginners, while also being robust for more advanced users.
 
-## Getting started
+## Features
 
-- The ports mappings are set with environment variables, whose key must start with `PORT`, and then can have any name.
-- Each environment variable can hold only one mapping. For setting multiple ports, many variables must be defined.
-- The format of environment variable values is: `LOCAL_PORT:REMOTE_HOST:REMOTE_PORT` (LOCAL_PORT is optional, if not given, will use the same port as REMOTE_PORT)
-- If you're using a fork of this repo, you can build and pull your own images
+- Supports the configuration of single or multiple port forwards.
+- Multi-arch images make it deployable on various platforms.
+- Beginner-friendly documentation with clear examples.
+- Demonstrations of different configurations, including port ranges and Docker Compose usage.
+
+## Getting Started
+
+### Prerequisites
+- Docker installed on your system.
+
+### Port Configuration
+
+- Ports are mapped using environment variables prefixed with `PORT`. For each port mapping, a unique environment variable is required.
+- The format is `LOCAL_PORT:REMOTE_HOST:REMOTE_PORT`. If `LOCAL_PORT` is omitted, it defaults to the same value as `REMOTE_PORT`.
+- To handle multiple mappings, assign each to a separate environment variable starting with `PORT`.
 
 ### Example
 
-Let's say you want to forward the following TCP ports:
+To forward the following TCP ports:
+- Remote port `9000` from host `192.168.0.10` to the container's port `9999`
+- Remote port `8080` from host `192.168.0.100` to the container's port `8080`, using the same port number for both local and remote
 
-- Remote port 9000 from remote host 192.168.0.10, to local (container) port 9999
-- Remote port 8080 from remote host 192.168.0.100, lo local (container) port 8080
+Configure the environment variables as follows:
 
-Then you can define these two environment variables, respectively (keys are examples and their values do not matter, as long as they start with "PORT"):
+- `PORT1=9999:192.168.0.10:9000`
+- `PORT_B=192.168.0.100:8080`
 
-- `PORT1=9999:192.168.0:10:9000`
-- `PORT_B=192.168.0.100:8080` (as we use the same local and remote port, local port can be undefined)
-
-The complete Docker Run command would be the following:
+Run the container with the command:
 
 ```bash
-docker run -d --name=portforward --net=host -e PORT1="9999:192.168.0:10:9000" -e PORT_B="192.168.0.100:8080" ghcr.io/david-lor/portforward
+docker run -d --name=portforward --net=host -e PORT1="9999:192.168.0.10:9000" -e PORT_B="192.168.0.100:8080" ghcr.io/bearlike/portforward
 ```
 
-### Port range
+### Port Range Forwarding
 
-Multiple ports, on a given range in series, can be forwarded using a single environment variable. For doing so, using the same syntax as with normal ports, give a range with the format `START-END` (being START and END both included), in the place of the port.
+Forward a series of consecutive ports by specifying a range in `START-END` format in place of a single port.
 
-For example, if you want to forward ports 1000 to 1010 from 192.168.0.10 to the same local ports (1000~1010 respectively),
-you can define an environment variable like: `PORTS1=192.168.0.10:1000-1010`.
+Example for forwarding ports `1000` to `1010`:
 
-A range can also be specified for the local ports. In this case, the ranges of local and remote ports must have the same length.
-For example, if you want to forward ports 1000 to 1010 from 192.168.0.10 to local ports 2000 to 2010 respectively,
-you can define an environment variable like: `PORTS2=2000-2010:192.168.0.10:1000-1010`
+- Same local and remote port range: `PORTS1=192.168.0.10:1000-1010`
+- Different local (`2000-2010`) and remote (`1000-1010`) port ranges: `PORTS2=2000-2010:192.168.0.10:1000-1010`
 
-### Socks proxy support
+### SOCKS Proxy Support
 
-The environment variable `SOCKS_PROXY` can be used for specifying the `ip:port` of a SOCKSv4 proxy to use for reaching the remote port.
-This will be applied to ALL the port mappings on the current container.
+Set the `SOCKS_PROXY` environment variable to the `ip:port` of a SOCKSv4 proxy for all port mappings in the container.
 
-## TODO
-- [X] Multiarch images
+```bash
+docker run -d --name=portforward --net=host -e SOCKS_PROXY="1.2.3.4:1080" ghcr.io/bearlike/portforward
+```
+
+### Docker Compose Examples
+
+#### Exposing Ports  
+
+```yaml
+version: '3'
+services:
+  portforward:
+    image: ghcr.io/bearlike/portforward
+    network_mode: host
+    container_name: portforward
+    environment:
+      - PORTS1=192.168.1.46:5100-5200
+      - PORT2=9002:192.168.1.46:9001
+      - PORT3=192.168.1.46:9000
+```
+
+### Forwarding ports from a WireGuard Network
+The `connect_to_wg` service connects to a WireGuard network using the gluetun image and exposes port 9002, while `portforward` forwards remote port 9001 to container port 9002 and shares network with `connect_to_wg`.
+
+```yaml
+version: "3"
+services:
+  # Use gluetun to connect to a WG network
+  connect_to_wg:
+    container_name: connect_to_wg
+    image: qmcgaw/gluetun
+    # Forwarding container (portforward) 9002 to host 9002
+    ports:
+      - 9002:9002
+    cap_add:
+      - NET_ADMIN
+    # These are placeholder values, modify them to your requirement
+    environment:
+      - VPN_SERVICE_PROVIDER=custom
+      - VPN_TYPE=wireguard
+      - VPN_ENDPOINT_IP=${VPN_ENDPOINT_IP}
+      - VPN_ENDPOINT_PORT=51820
+      - WIREGUARD_PUBLIC_KEY=${WG_PUBLIC_KEY}
+      - WIREGUARD_PRIVATE_KEY=${WG_PRIVATE_KEY}
+      - WIREGUARD_PRESHARED_KEY=${WG_PRESHARED_KEY}
+      - WIREGUARD_ADDRESSES=10.8.0.2/24
+
+  # Portforward will be able to access IPs within the WG network
+  portforward:
+    image: ghcr.io/bearlike/portforward
+    container_name: portforward
+    # Forwarding remote 9001 to container 9002
+    environment:
+      - PORT1=9002:192.168.1.44:9001
+    # portward will use the same IP as connect_to_wg 
+    network_mode: "service:connect_to_wg"
+    depends_on:
+      connect_to_wg:
+        condition: service_healthy
+
+
+```
 
 ## Changelog
 
-- 0.1.1
-  - Port range forwarding (one socat command per port)
-  - SOCKS proxy support (socat)
-  - Add tests, integrated in GitHub Actions
-- 0.0.2
-  - Fix socat command
-- 0.0.1
-  - Initial release
+- **0.1.1**
+  - Support for port range forwarding using a single socat command per port.
+  - Addition of SOCKS proxy support.
+  - Integrated tests with GitHub Actions.
+
+- **0.0.2**
+  - Bug fixes in socat commands.
+
+- **0.0.1**
+  - Initial release with basic port forwarding functionality.
+
+## Acknowledgements
+
+This project was originally forked from [David-Lor/Docker-PortForward](https://github.com/David-Lor/Docker-PortForward). Special thanks to [David-Lor](https://github.com/David-Lor) for their foundational contributions up to version `0.1.1`.
